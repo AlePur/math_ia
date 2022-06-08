@@ -1,27 +1,38 @@
 <script>
-	let canvas, resultCanvas, graphCanvas;
+	let canvas, resultCanvas, graphCanvas = Array(10);
 	import Plot from "./plot.js";
 
-	let pixels, segments = undefined;
+	let pixels, segments = [];
+	let rotate = 0;
 	const canvasSize = 400;
+	const plotDimentions = 20;
 
-	let toggle_original = 1, toggle_graph = 1, toggle_outline = 1;
+	let toggle_original = 1, toggle_graph = 1, toggle_plot = Array(plotDimentions).fill(1), toggle_outline = 1;
 
 	let dataURI1 = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Rhombus_black%28cs2%29.svg/249px-Rhombus_black%28cs2%29.svg.png";
 	let dataURI2 = "https://static.thenounproject.com/png/35330-200.png";
 
-	const template = [[1, -1], [1, 0], [1, 1], [-1, -1], [-1, 0], [-1, 1]];
-	const neighbors = template.map(z => (z[0] * canvasSize + z[1]) * 4);
+	const template = [1, -1].map(a => [1, 0, -1].map(b => [a, b])).flat();
+	const neighbors = template.map(a => (a[0] * canvasSize + a[1]) * 4);
+	const neighborArray = template;// template.concat(template.map(a => [a[0] * 2, a[1] * 2]))
+
 	const dist = (_a, _b) => Math.hypot(_b[0] - _a[0], _b[1] - _a[1]);
 
 	function render(URI) {
 		const ctx = canvas.getContext("2d");
 
-		ctx.clearRect(0, 0, canvas.width, canvas.height);
 		let img = new Image;
 
 		img.onload = () => {
-			ctx.drawImage(img, 0, 0);
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+			
+			ctx.setTransform(1, 0, 0, 1, canvasSize/2, canvasSize/2);
+			if (rotate) {
+				ctx.rotate(Math.PI / 2);
+			}
+			ctx.drawImage(img, -img.width / 2, -img.height / 2);
+			ctx.setTransform(1,0,0,1,0,0);
+			
 			renderPerimeter();
 		}
 
@@ -68,29 +79,41 @@
 			}
 		}
 
-		for (let x = 0; x < canvasSize; x += 1) {
-			for (let y = 0; y < canvasSize; y += 1) {
-				if (temp[x][y]) {
+		let j = 0;
 
-					let green = (temp[x][y] == 2);
+		const iter = 4;
 
-					for (let nindex = 0; nindex < template.length; nindex++) {
-						let n = temp[Math.min(Math.max(0, template[nindex][1] + x), 300)][Math.min(Math.max(0, template[nindex][0] + y), 300)];
-						if (n == 2) {
-							green++;
-						} else if (n == 1) {
-							green -= 6;
+		while (j < (iter + 1)) {
+
+			for (let x = 0; x < canvasSize; x += 1) {
+				for (let y = 0; y < canvasSize; y += 1) {
+					if (temp[x][y]) {
+
+						let green = (temp[x][y] == 2);
+
+						for (let nindex = 0; nindex < neighborArray.length; nindex++) {
+							let n = temp[Math.min(Math.max(0, neighborArray[nindex][1] + x), 300)][Math.min(Math.max(0, neighborArray[nindex][0] + y), 300)];
+							if (n == 2) {
+								green++;
+							} else if (n == 1) {
+								green -= 2;
+							}
+						}
+
+						green = (green > 0);
+						
+						if (j < iter) {
+							temp[x][y] = green + 1;
+						} else {
+							const size = 2;
+							rctx.fillStyle = `rgba(${255 * (!green)}, ${255 * (green)}, 0, 1)`;
+							rctx.fillRect(x, y, size, size);
 						}
 					}
-
-					green = (green > 0);
-
-					const size = 2;
-
-					rctx.fillStyle = `rgba(${255 * (!green)}, ${255 * (green)}, 0, 1)`;
-					rctx.fillRect(x, y, size, size);
 				}
 			}
+			j++;
+
 		}
 
 		dividePerimeter();
@@ -101,14 +124,12 @@
 		
 		const rctx = resultCanvas.getContext("2d");
 
-		const gctx = graphCanvas.getContext("2d");
-		gctx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
-
 		const imgData = rctx.getImageData(0, 0, resultCanvas.width, resultCanvas.height);
 		const data = imgData.data;
 
 		let i = 0;
-		let mem = [[], []]; // r, g
+		let mem = [[], [], []]; // r, g, total
+		segments.length = [];
 
 		for (i = 0; i < data.length; i += 4) {
 			const r = data[i];
@@ -133,49 +154,99 @@
 				}
 
 				let free = 1;
-				const _distance = (near ? 5 : 20);
+				const distance = 10;
 
 				for (let j = 0; j < mem[offset].length; j++) {
 					const e = mem[offset][j];
-					if (dist(e, [x, y]) < _distance) {
+					const d = dist(e, [x, y]);
+					if (d < distance) {
 						free = 0;
 						break;
 					}
 				}
-
+				
 				if (free) {
 					mem[offset].push([x, y]);
-					gctx.fillStyle = `rgba(${(offset) * 255}, 0, 255, 1)`;
-					gctx.fillRect(x - 1, y - 1, 4, 4);
 				}
 
-				Plot((x) => x, [0, 1, 0, 1], graphCanvas);
+				if (near) { // make the YELLOW dot (dividing dot)
+					let _free = 1;
+					for (let j = 0; j < mem[2].length; j++) {
+						const e = mem[2][j];
+						if (dist(e, [x, y]) < 10) {
+							_free = 0;
+							break;
+						}
+					}
+
+					if (_free) {
+						mem[2].push([x, y]);
+						rctx.fillStyle = `rgba(255, 255, 0, 1)`;
+						rctx.fillRect(x - 2, y - 2, 6, 6);
+					}
+				}
 			}
 		}
 
-		let totalMinDist = 100_100;
-		let point = [0, 0];
+		const addPoint = (cpoint, col) => {
+			const candidates = [];
+			for (let k = 0; k < mem[col].length; k++) {
+				const e2 = mem[col][k];
 
-		for (let i = 0; i < mem[0].length; i++) {
-			const e = mem[0][i];
-			let minDist = 100_000;
+				if (cpoint == e2) continue;
 
-			for (let j = 0; j < mem[1].length; j++) {
-				const f = mem[1][j];
-				const d = dist(e, f);
-				if (d < minDist) {
-					minDist = d;
+				const d = dist(cpoint, e2);
+
+				if (d < 20) {
+					candidates.push([d, k]);
 				}
 			}
 
-			if (minDist < totalMinDist) {
-				totalMinDist = minDist;
-				point = e;
+			if (candidates.length) {
+				candidates.sort((a, b) => a[0] - b[0]);
+				return mem[col].splice(candidates[0][1], 1)[0]; //splice is [Array]
+			}
+
+			return 0;
+		}
+
+		for (let j = 0; j < mem[2].length; j++) {
+			for (let t = 0; t < 2; t++) { // t is either green or red
+				let s = [mem[2][j]]; // first point is the dividing point
+				let newPoint = s[0];
+
+				while (1) {
+					newPoint = addPoint(newPoint, t);
+					if (newPoint == 0) {
+						break;
+					}
+					s.push(newPoint);
+				}
+
+				if (s.length < 2) continue;
+				segments.push(s);
 			}
 		}
 
-		//gctx.fillStyle = `rgba(255, 255, 0, 1)`;
-		//gctx.fillRect(point[0], point[1], 5, 5);
+		graphCanvas.forEach(c => {
+			const gctx = c.getContext("2d");
+			gctx.clearRect(0, 0, canvasSize, canvasSize);
+		});
+
+		segments.forEach((z, j) => {
+			z.sort((a, b) => a[0] - b[0]);
+			//let f = (x) => x + z[0][0];
+
+			const gctx = graphCanvas[j].getContext("2d");
+
+			for (let i = 0; i < z.length; i++) {
+				gctx.fillStyle = `rgba(${((j + 1)/segments.length) * 255}, 0, 255, 1)`;
+				gctx.fillRect(z[i][0] - 1, z[i][1] - 1, 4, 4);
+			}
+
+			//Plot(f, [0, canvasSize, 0, canvasSize], graphCanvas);
+		})
+		console.log(segments);
 	}
 
 	
@@ -187,17 +258,23 @@
 			<div id="cborder">
 				<canvas hidden={!toggle_original} id="canv" bind:this={canvas} width={canvasSize} height={canvasSize}></canvas>
 				<canvas hidden={!toggle_outline} id="rcanv" bind:this={resultCanvas} width={canvasSize} height={canvasSize}></canvas>
-				<canvas hidden={!toggle_graph} id="rcanv" bind:this={graphCanvas} width={canvasSize} height={canvasSize}></canvas>
+				{#each [...Array(plotDimentions).keys()] as i}
+					<canvas hidden={!toggle_plot[i] || !toggle_graph} id="rcanv" bind:this={graphCanvas[i]} width={canvasSize} height={canvasSize}></canvas>
+				{/each}
 				<div id="graph"></div>
 			</div>
 			<div>
 				<div class="co">Pixel count: {pixels}</div>
-				<div class="co">Segment count: {segments}</div>
+				<div class="co">Segment count: {segments.length}</div>
 				<div style="padding: 10px; background-color: #eee;">
 					<div>Original image: <input type=checkbox bind:checked={toggle_original}></div>
 					<div>Outline: <input type=checkbox bind:checked={toggle_outline}></div>
 					<div>Graph: <input type=checkbox bind:checked={toggle_graph}></div>
+					{#each segments as seg, _i}
+						<div>segment_{_i}: <input type=checkbox bind:checked={toggle_plot[_i]}></div>
+					{/each}
 				</div>
+				<div><input type=checkbox bind:checked={rotate}> Rotate</div>
 			</div>
 		</div>
 		<button on:click={() => render("shape1.png")}>Shape1</button>
